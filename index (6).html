@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="算账">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>算账助手</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-tap-highlight-color: transparent; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  input, select, textarea { font-size: 16px; }
+  pre { font-family: "PingFang SC", "Microsoft YaHei", monospace; white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen pb-10">
+<div class="max-w-3xl mx-auto p-3">
+  <header class="bg-blue-700 text-white rounded-xl shadow p-4 mb-4">
+    <h1 class="text-xl font-bold">算账助手</h1>
+    <p class="text-blue-200 text-xs mt-1">微信粘贴 / 手动录单 · 结算统计</p>
+  </header>
+
+  <!-- 页签 -->
+  <div class="flex bg-white rounded-xl shadow mb-4 overflow-hidden">
+    <button id="tabCalc" class="flex-1 py-3 font-semibold text-blue-700 border-b-2 border-blue-700">结算</button>
+    <button id="tabHistory" class="flex-1 py-3 font-semibold text-gray-500 border-b-2 border-transparent">历史统计</button>
+  </div>
+
+  <div id="pageCalc">
+    <div class="bg-white rounded-xl shadow p-4 mb-4">
+      <label class="block text-sm font-medium text-gray-600 mb-1">申报人</label>
+      <input id="declarer" type="text" value="张三" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400">
+    </div>
+
+    <!-- 录入方式切换 -->
+    <div class="flex bg-white rounded-xl shadow mb-4 overflow-hidden text-sm">
+      <button id="modePaste" class="flex-1 py-2.5 font-semibold text-blue-700 bg-blue-50">📋 粘贴微信报单</button>
+      <button id="modeManual" class="flex-1 py-2.5 font-semibold text-gray-500">✏️ 手动录单</button>
+    </div>
+
+    <!-- 方式1：粘贴 -->
+    <div id="panePaste" class="bg-white rounded-xl shadow p-4 mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-semibold text-gray-700">粘贴报单内容</h2>
+        <button id="demoBtn" class="text-xs text-blue-500 underline">填入示例</button>
+      </div>
+      <textarea id="rawInput" rows="8" placeholder="把微信里对方发来的注单整段复制粘贴到这里，例如：
+第1条 10
+第2条 1300
+第10条 2020
+特码: 50.00"
+        class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"></textarea>
+      <button id="parseBtn" class="mt-2 w-full bg-blue-600 active:bg-blue-800 text-white font-semibold py-3 rounded-lg shadow">识 别</button>
+      <p class="text-xs text-gray-400 mt-2">规则：每行“第N条 金额”记一条；某条下带“玩法: 金额”（如 特码: 50.00）记为中奖。</p>
+    </div>
+
+    <!-- 方式2：手动录单 -->
+    <div id="paneManual" class="bg-white rounded-xl shadow p-4 mb-4 hidden">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold text-gray-700">注单列表</h2>
+        <button id="addBtn" class="bg-blue-600 active:bg-blue-800 text-white text-sm px-4 py-2 rounded-lg shadow">+ 添加注单</button>
+      </div>
+      <div id="betList" class="space-y-3"></div>
+    </div>
+
+    <!-- 汇总参数 -->
+    <div class="bg-white rounded-xl shadow p-4 mb-4">
+      <h2 class="font-semibold text-gray-700 mb-2">汇总（可修改）</h2>
+      <div class="text-sm space-y-2">
+        <div class="flex justify-between"><span class="text-gray-500">注单条数</span><span id="pCount" class="num font-semibold">0</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">总金额</span><span id="pTotal" class="num font-semibold">0</span></div>
+        <div class="flex justify-between items-center gap-2">
+          <span class="text-gray-500">返水 = 总额 ×</span>
+          <div class="flex items-center gap-1">
+            <input id="rate" type="number" step="0.001" value="0.06" class="w-20 border rounded px-2 py-1 num">
+            <button id="applyRate" class="text-xs bg-gray-200 rounded px-2 py-1">重算</button>
+          </div>
+        </div>
+        <div class="flex justify-between items-center gap-2">
+          <span class="text-gray-500">返水（可直接改）</span>
+          <input id="rebate" type="number" step="1" value="0" class="w-28 border rounded px-2 py-1 num">
+        </div>
+      </div>
+
+      <div class="mt-3 pt-3 border-t">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm text-gray-500">中奖明细</span>
+          <button id="addWin" class="text-xs bg-green-100 text-green-700 rounded px-2 py-1">+ 加一条中奖</button>
+        </div>
+        <div id="winList" class="space-y-2"></div>
+        <p class="text-xs text-gray-400 mt-1">赔率默认：特码47、平码7、二连50、三中三600、半波5、六肖1.85（赔 = 金额 × (赔率−1)）</p>
+      </div>
+    </div>
+
+    <!-- 结算结果 -->
+    <div class="bg-white rounded-xl shadow p-4">
+      <h2 class="font-semibold text-gray-700 mb-2">结算结果</h2>
+      <div class="flex justify-between items-center mb-3 bg-gray-50 rounded-lg p-3">
+        <span class="font-semibold text-gray-700">合计盈亏</span>
+        <span id="pnl" class="num text-2xl font-bold text-green-600">0.0</span>
+      </div>
+      <pre id="result" class="bg-gray-50 border rounded-lg p-3 text-sm text-gray-800"></pre>
+      <div class="flex gap-2 mt-3">
+        <button id="copyBtn" class="flex-1 bg-blue-600 active:bg-blue-800 text-white font-semibold py-3 rounded-lg shadow">复制结果</button>
+        <button id="saveBtn" class="flex-1 bg-green-600 active:bg-green-800 text-white font-semibold py-3 rounded-lg shadow">保存账单</button>
+      </div>
+      <p id="tip" class="text-center text-green-600 text-sm mt-2 hidden"></p>
+    </div>
+  </div>
+
+  <!-- 历史统计 -->
+  <div id="pageHistory" class="hidden">
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="text-xs text-gray-500">账单笔数</div>
+        <div id="statCount" class="num text-2xl font-bold text-gray-800 mt-1">0</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="text-xs text-gray-500">累计总额</div>
+        <div id="statBet" class="num text-2xl font-bold text-gray-800 mt-1">0</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="text-xs text-gray-500">累计返水</div>
+        <div id="statRebate" class="num text-2xl font-bold text-gray-800 mt-1">0</div>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="text-xs text-gray-500">累计盈亏</div>
+        <div id="statPnL" class="num text-2xl font-bold mt-1 text-green-600">0</div>
+      </div>
+    </div>
+    <div id="historyList" class="space-y-3"></div>
+    <p id="emptyTip" class="text-center text-gray-400 text-sm py-8">还没有保存过账单</p>
+  </div>
+</div>
+
+<script>
+const ODDS = { "特码": 47, "平码": 7, "二连": 50, "三中三": 600, "半波": 5, "六肖": 1.85 };
+let bets = [];   // 金额数组
+let wins = [];   // {play, amount, odds}
+let mode = 'paste';
+
+// ============ 方式1：粘贴识别 ============
+function parseRaw() {
+  const text = document.getElementById('rawInput').value;
+  const lines = text.split(/\r?\n/);
+  bets = []; wins = [];
+  lines.forEach(line => {
+    line = line.trim();
+    if (!line) return;
+    let m = line.match(/第\s*\d+\s*条\s*[:：]?\s*([\d.]+)/);
+    if (m) { bets.push(parseFloat(m[1])); return; }
+    m = line.match(/^([\d.]+)$/);
+    if (m) { bets.push(parseFloat(m[1])); return; }
+    m = line.match(/^([一-龥]{1,6})\s*[:：]?\s*中?\s*[:：]?\s*([\d.]+)/);
+    if (m && !/第|条/.test(m[1])) {
+      const play = m[1].replace(/中$/, '');
+      wins.push({ play, amount: parseFloat(m[2]), odds: ODDS[play] ?? 47 });
+    }
+  });
+  const total = bets.reduce((a,b)=>a+b,0);
+  const rate = parseFloat(document.getElementById('rate').value) || 0;
+  document.getElementById('rebate').value = Math.round(total * rate);
+  renderWins();
+}
+
+// ============ 方式2：手动录单 ============
+const betList = document.getElementById('betList');
+function addBetRow() {
+  const row = document.createElement('div');
+  row.className = "bg-gray-50 rounded-lg p-2 space-y-2";
+  row.innerHTML = `
+    <div class="flex gap-2">
+      <select class="mPlay flex-1 border rounded px-2 py-2">
+        ${Object.keys(ODDS).map(k => `<option>${k}</option>`).join('')}
+      </select>
+      <label class="flex items-center gap-1 text-sm text-gray-600 px-2">
+        <input type="checkbox" class="mWin w-5 h-5 accent-green-600"> 中奖
+      </label>
+      <button class="mDel text-red-500 text-2xl leading-none px-2">×</button>
+    </div>
+    <div class="flex gap-2">
+      <input type="number" class="mAmt flex-1 border rounded px-2 py-2 num" placeholder="金额" min="0">
+      <input type="number" class="mOdds flex-1 border rounded px-2 py-2 num" placeholder="赔率" min="0" step="0.01">
+      <input type="number" class="mShui flex-1 border rounded px-2 py-2 num" placeholder="水" min="0" step="0.001" value="0.06">
+    </div>`;
+  betList.appendChild(row);
+  const playSel = row.querySelector('.mPlay');
+  const oddsInp = row.querySelector('.mOdds');
+  oddsInp.value = ODDS[playSel.value];
+  playSel.addEventListener('change', () => { oddsInp.value = ODDS[playSel.value]; syncManual(); });
+  row.querySelectorAll('input').forEach(i => i.addEventListener('input', syncManual));
+  row.querySelector('.mDel').addEventListener('click', () => { row.remove(); syncManual(); });
+}
+
+function syncManual() {
+  bets = []; wins = [];
+  let rebate = 0;
+  betList.querySelectorAll(':scope > div').forEach(row => {
+    const amt = parseFloat(row.querySelector('.mAmt').value) || 0;
+    if (amt <= 0) return;
+    const shui = parseFloat(row.querySelector('.mShui').value) || 0;
+    bets.push(amt);
+    rebate += amt * shui;
+    if (row.querySelector('.mWin').checked) {
+      wins.push({
+        play: row.querySelector('.mPlay').value,
+        amount: amt,
+        odds: parseFloat(row.querySelector('.mOdds').value) || 0
+      });
+    }
+  });
+  document.getElementById('rebate').value = Math.round(rebate);
+  renderWins();
+}
+
+// ============ 共用：中奖明细 ============
+function renderWins() {
+  const list = document.getElementById('winList');
+  list.innerHTML = '';
+  wins.forEach((w, i) => {
+    const row = document.createElement('div');
+    row.className = 'flex gap-2 items-center';
+    row.innerHTML = `
+      <select class="wPlay flex-1 border rounded px-2 py-1.5 text-sm">
+        ${Object.keys(ODDS).map(k => `<option ${k===w.play?'selected':''}>${k}</option>`).join('')}
+      </select>
+      <input type="number" class="wAmt w-20 border rounded px-2 py-1.5 text-sm num" value="${w.amount}" step="0.01">
+      <span class="text-xs text-gray-400">赔率</span>
+      <input type="number" class="wOdds w-16 border rounded px-2 py-1.5 text-sm num" value="${w.odds}" step="0.01">
+      <button class="wDel text-red-500 text-xl px-1">×</button>`;
+    list.appendChild(row);
+    row.querySelector('.wPlay').addEventListener('change', e => { wins[i].play = e.target.value; wins[i].odds = ODDS[wins[i].play]; renderWins(); });
+    row.querySelector('.wAmt').addEventListener('input', e => { wins[i].amount = parseFloat(e.target.value)||0; calc(); });
+    row.querySelector('.wOdds').addEventListener('input', e => { wins[i].odds = parseFloat(e.target.value)||0; calc(); });
+    row.querySelector('.wDel').addEventListener('click', () => { wins.splice(i,1); renderWins(); });
+  });
+  calc();
+}
+
+// ============ 结算 ============
+function calc() {
+  const declarer = document.getElementById('declarer').value || '张三';
+  const total = bets.reduce((a,b)=>a+b,0);
+  const rebate = parseFloat(document.getElementById('rebate').value) || 0;
+  document.getElementById('pCount').textContent = bets.length;
+  document.getElementById('pTotal').textContent = total;
+
+  const groups = {};
+  wins.forEach(w => {
+    const key = w.play + '|' + w.odds;
+    if (!groups[key]) groups[key] = { play: w.play, odds: w.odds, amounts: [], pay: 0 };
+    groups[key].amounts.push(w.amount);
+    groups[key].pay += w.amount * (w.odds - 1);
+  });
+  let totalPay = 0, winLines = [];
+  for (const k in groups) {
+    const g = groups[k];
+    totalPay += g.pay;
+    winLines.push(`${g.play} 中: ${g.amounts.map(a=>a.toFixed(2)).join('+')} —— 赔:${g.pay.toFixed(1)}`);
+  }
+
+  const pnl = total - rebate - totalPay;
+  const pnlEl = document.getElementById('pnl');
+  pnlEl.textContent = pnl.toFixed(1);
+  pnlEl.className = 'num text-2xl font-bold ' + (pnl >= 0 ? 'text-green-600' : 'text-red-600');
+
+  const lines = [
+    '--------------------------------按照申报人兑奖结果--------------------------------',
+    `申报人：${declarer} `,
+    `订单金额明细：${bets.length ? bets.join('+') : 0}=${total.toFixed(1)} (共计${bets.length}条) `,
+    `订单总额：${total.toFixed(1)} `,
+    `返水：${rebate} `,
+    '中奖情况： ',
+    ...(winLines.length ? winLines.map(l => l + ' ') : ['无 ']),
+    `盈亏情况：${pnl.toFixed(1)} `,
+    '-------------------------------------------------------------------------------- ',
+    '',
+    `>>>>>>>>>>>>合计盈亏:${pnl.toFixed(1)}`
+  ];
+  document.getElementById('result').textContent = lines.join('\n');
+  return { declarer, count: bets.length, total, rebate, totalPay, pnl };
+}
+
+// ============ 复制 / 保存 ============
+document.getElementById('copyBtn').addEventListener('click', async () => {
+  const text = document.getElementById('result').textContent;
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  showTip('已复制，去微信粘贴发送吧 ✓');
+});
+
+function showTip(msg) {
+  const tip = document.getElementById('tip');
+  tip.textContent = msg;
+  tip.classList.remove('hidden');
+  setTimeout(() => tip.classList.add('hidden'), 1800);
+}
+
+const KEY = 'sz_bills_v2';
+const loadBills = () => JSON.parse(localStorage.getItem(KEY) || '[]');
+const saveBills = b => localStorage.setItem(KEY, JSON.stringify(b));
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const r = calc();
+  if (!r || r.total <= 0) { showTip('请先录入注单'); return; }
+  const bills = loadBills();
+  bills.unshift({ time: new Date().toLocaleString('zh-CN'), ...r });
+  saveBills(bills);
+  showTip('已保存 ✓');
+  renderHistory();
+});
+
+function renderHistory() {
+  const bills = loadBills();
+  document.getElementById('emptyTip').style.display = bills.length ? 'none' : 'block';
+  document.getElementById('statCount').textContent = bills.length;
+  document.getElementById('statBet').textContent = bills.reduce((a,b)=>a+b.total,0).toFixed(1);
+  document.getElementById('statRebate').textContent = bills.reduce((a,b)=>a+b.rebate,0).toFixed(1);
+  const sp = bills.reduce((a,b)=>a+b.pnl,0);
+  const spEl = document.getElementById('statPnL');
+  spEl.textContent = sp.toFixed(1);
+  spEl.className = 'num text-2xl font-bold mt-1 ' + (sp >= 0 ? 'text-green-600' : 'text-red-600');
+
+  const list = document.getElementById('historyList');
+  list.innerHTML = bills.map((b, i) => `
+    <div class="bg-white rounded-xl shadow p-4">
+      <div class="flex justify-between items-center">
+        <div>
+          <div class="font-semibold text-gray-800">${b.declarer}</div>
+          <div class="text-xs text-gray-400">${b.time} · ${b.count}条</div>
+        </div>
+        <div class="text-right">
+          <div class="num font-bold ${b.pnl >= 0 ? 'text-green-600' : 'text-red-600'}">${b.pnl.toFixed(1)}</div>
+          <div class="text-xs text-gray-400">总额 ${b.total.toFixed(1)} · 返水 ${b.rebate}</div>
+        </div>
+      </div>
+      <button data-i="${i}" class="delBill mt-2 text-xs text-red-400">删除此条</button>
+    </div>`).join('');
+  list.querySelectorAll('.delBill').forEach(btn => btn.addEventListener('click', e => {
+    const bills = loadBills();
+    bills.splice(+e.target.dataset.i, 1);
+    saveBills(bills);
+    renderHistory();
+  }));
+}
+
+// ============ 事件绑定 ============
+document.getElementById('parseBtn').addEventListener('click', parseRaw);
+document.getElementById('applyRate').addEventListener('click', () => {
+  const total = bets.reduce((a,b)=>a+b,0);
+  const rate = parseFloat(document.getElementById('rate').value) || 0;
+  document.getElementById('rebate').value = Math.round(total * rate);
+  calc();
+});
+document.getElementById('rebate').addEventListener('input', calc);
+document.getElementById('declarer').addEventListener('input', calc);
+document.getElementById('addBtn').addEventListener('click', addBetRow);
+document.getElementById('addWin').addEventListener('click', () => { wins.push({ play: '特码', amount: 0, odds: ODDS['特码'] }); renderWins(); });
+document.getElementById('demoBtn').addEventListener('click', () => {
+  document.getElementById('rawInput').value =
+`第1条 10
+第2条 1300
+第3条 300
+第4条 2000
+第5条 5
+第6条 15
+第7条 5
+第8条 70
+第9条 5
+第10条 2020
+特码: 50.00
+第11条 70
+第12条 200
+第13条 100`;
+  parseRaw();
+});
+
+// 录入方式切换
+const mP = document.getElementById('modePaste'), mM = document.getElementById('modeManual');
+function switchMode(paste) {
+  mode = paste ? 'paste' : 'manual';
+  document.getElementById('panePaste').classList.toggle('hidden', !paste);
+  document.getElementById('paneManual').classList.toggle('hidden', paste);
+  const on = 'flex-1 py-2.5 font-semibold text-blue-700 bg-blue-50';
+  const off = 'flex-1 py-2.5 font-semibold text-gray-500';
+  mP.className = paste ? on : off;
+  mM.className = paste ? off : on;
+  if (paste) parseRaw(); else syncManual();
+}
+mP.addEventListener('click', () => switchMode(true));
+mM.addEventListener('click', () => switchMode(false));
+
+// 页签切换
+const tC = document.getElementById('tabCalc'), tH = document.getElementById('tabHistory');
+function switchTab(c) {
+  document.getElementById('pageCalc').classList.toggle('hidden', !c);
+  document.getElementById('pageHistory').classList.toggle('hidden', c);
+  const on = 'flex-1 py-3 font-semibold text-blue-700 border-b-2 border-blue-700';
+  const off = 'flex-1 py-3 font-semibold text-gray-500 border-b-2 border-transparent';
+  tC.className = c ? on : off; tH.className = c ? off : on;
+  if (!c) renderHistory();
+}
+tC.addEventListener('click', () => switchTab(true));
+tH.addEventListener('click', () => switchTab(false));
+
+addBetRow();
+renderWins();
+renderHistory();
+</script>
+</body>
+</html>
